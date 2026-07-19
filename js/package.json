@@ -1,0 +1,16 @@
+{
+  "name": "prip-frida-js",
+  "type": "commonjs",
+  "main": "frida.js",
+  "dependencies": {
+    "frida-java-bridge": "^7.0.13"
+  },
+  "devDependencies": {
+    "@types/frida-gum": "^19.10.0",
+    "frida-compile": "^19.0.5"
+  },
+  "scripts": {
+    "build": "frida-compile frida.js -o build/frida.compiled.js",
+    "watch": "frida-compile frida.js -o build/frida.compiled.js -w"
+  }
+}

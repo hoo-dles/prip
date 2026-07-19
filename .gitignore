@@ -1,0 +1,8 @@
+.vscode/
+
+.venv/
+__pycache__/
+
+js/node_modules/
+js/build/**
+output/

@@ -1,0 +1,16 @@
+[project]
+name = "prip"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "androguard>=4.0",
+    "frida==17.15.5",
+    "rich>=15.0.0",
+]
+
+[project.scripts]
+prip = "prip.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.11.29,<0.12"]
+build-backend = "uv_build"
