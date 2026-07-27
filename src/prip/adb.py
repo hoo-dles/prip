@@ -23,7 +23,7 @@ def force_stop(package: str):
 
 
 def get_pid(package: str):
-    return int(adb_shell(f"pidof {package}"))
+    return int(adb_shell(f"pgrep -f {package}"))
 
 
 def try_get_pid(package: str):

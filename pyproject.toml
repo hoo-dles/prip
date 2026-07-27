@@ -2,11 +2,7 @@
 name = "prip"
 version = "0.1.0"
 requires-python = ">=3.10"
-dependencies = [
-    "androguard>=4.0",
-    "frida==17.15.5",
-    "rich>=15.0.0",
-]
+dependencies = ["androguard>=4.0", "frida==17.16.4", "rich>=15.0.0"]
 
 [project.scripts]
 prip = "prip.cli:main"
