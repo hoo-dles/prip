@@ -1,8 +1,13 @@
 [project]
 name = "prip"
 version = "0.1.0"
-requires-python = ">=3.10"
-dependencies = ["androguard>=4.0", "frida==17.16.4", "rich>=15.0.0"]
+requires-python = ">=3.12"
+dependencies = [
+    "androguard>=4.0",
+    "frida==17.16.4",
+    "lief>=1.0.0",
+    "rich>=15.0.0",
+]
 
 [project.scripts]
 prip = "prip.cli:main"

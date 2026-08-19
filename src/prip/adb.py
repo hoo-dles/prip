@@ -18,17 +18,17 @@ def launch_app(package: str):
     return get_pid(package)
 
 
-def force_stop(package: str):
-    adb_shell(f"am force-stop {package}")
+def force_stop(process: str):
+    adb_shell(f"am force-stop {process}")
 
 
-def get_pid(package: str):
-    return int(adb_shell(f"pgrep -f {package}"))
+def get_pid(process: str):
+    return int(adb_shell(f"pgrep -f -n {process}"))
 
 
-def try_get_pid(package: str):
+def try_get_pid(process: str):
     try:
-        return get_pid(package)
+        return get_pid(process)
     except subprocess.CalledProcessError:
         return None
 
@@ -38,17 +38,29 @@ def get_package_version(package: str):
     return res.strip().removeprefix("versionName=")
 
 
-def _get_base_apk_path(package: str):
-    res = adb_shell(f"pm path {package} | grep base\\.apk")
-    return res.removeprefix("package:")
+def _get_apk_paths(package: str):
+    def get_path(split: str):
+        return adb_shell(f"pm path {package} | grep {split}\\.apk").removeprefix(
+            "package:"
+        )
+
+    return get_path("base"), get_path("arm64_v8a")
 
 
-def pull_base_apk(package: str, output: Path):
-    path = _get_base_apk_path(package)
-    subprocess.run(
-        f'adb pull "{path}" "{output}"',
-        shell=True,
-        check=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+def pull_apks(package: str, output: Path):
+    def pull(path: str):
+        apk_name = Path(path).name
+        output_apk = output / apk_name
+        subprocess.run(
+            f'adb pull "{path}" "{output_apk}"',
+            shell=True,
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return output_apk
+
+    base, arm = _get_apk_paths(package)
+    out_base = pull(base)
+    arm_base = pull(arm)
+    return out_base, arm_base

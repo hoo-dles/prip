@@ -1,17 +1,22 @@
 import argparse
+import base64
 import json
 import os
+import shutil
 import sys
 import tempfile
+from dataclasses import asdict
 from pathlib import Path
 from time import sleep
 
 from loguru import logger
 from rich.console import Console
 
-from .adb import force_stop, get_package_version, launch_app, pull_base_apk, try_get_pid
+from .adb import force_stop, get_package_version, launch_app, pull_apks, try_get_pid
 from .dex import find_reflected, parse_dex
 from .frida import attach_and_run_script, start_frida_server
+from .models import ExportResults, LibraryData
+from .native import analyze_natives, keystream
 
 
 def main():
@@ -43,32 +48,48 @@ def main():
         type=int,
         default=3,
     )
+    ap.add_argument(
+        "--no-clean",
+        dest="clean",
+        help="skip cleaning up temp directory with pulled APKs",
+        action="store_false",
+    )
 
     args = ap.parse_args()
     console.log("Starting")
 
-    with console.status("[yellow]Pulling base APK from device...") as status:
-        temp_apk_path = None
+    with console.status("[yellow]Pulling APK splits from device...") as status:
+        temp_path = None
 
         try:
             # find base apk location on device and pull
             version = get_package_version(args.target)
-            temp_apk_path = Path(tempfile.gettempdir()) / f"{args.target}_{version}.apk"
-            pull_base_apk(args.target, temp_apk_path)
-            status.console.log(f"Pulled base APK: [green bold]{temp_apk_path}")
+            temp_path = Path(tempfile.gettempdir()) / f"{args.target}_{version}"
+            temp_path.mkdir(parents=True, exist_ok=True)
+            base_apk_path, arm_apk_path = pull_apks(args.target, temp_path)
+            status.console.log(
+                f"Pulled base and arm64_v8a APKs to [green bold]{temp_path}"
+            )
 
             # load DEX from apk
             status.update("[yellow]Parsing DEX...")
-            dex_objects = parse_dex(temp_apk_path)
+            dex_objects = parse_dex(base_apk_path)
             status.console.log(
                 f"Loaded [bold green]{len(dex_objects)}[/bold green] DEX files"
             )
 
             # search for classes/fields that need reflection
             status.update("[yellow]Searching for classes...")
-            reflected = find_reflected(dex_objects)
+            reflection_to_hydrate = find_reflected(dex_objects)
             status.console.log(
-                f"Found [bold green]{len(reflected.methods)} Method[/bold green] classes and [bold green]{len(reflected.strings)} String[/bold green] classes"
+                f"Found [bold green]{len(reflection_to_hydrate.methods)} Method[/bold green] classes and [bold green]{len(reflection_to_hydrate.strings)} String[/bold green] classes"
+            )
+
+            # analyze native libraries
+            status.update("[yellow]Analyzing native libraries...")
+            frida_natives, encrypted = analyze_natives(arm_apk_path)
+            status.console.log(
+                f"Found protected libraries: [bold green]{', '.join(frida_natives) if frida_natives else 'None'}"
             )
 
             # start frida-server
@@ -94,22 +115,49 @@ def main():
 
             # attach frida script
             status.update("[yellow]Attaching to process and running Frida script...")
-            results = attach_and_run_script(app_pid, reflected)
+            java_results, native_results = attach_and_run_script(
+                app_pid, reflection_to_hydrate, frida_natives
+            )
             force_stop(args.target)
-            status.console.log("Captured reflected values and stopped app")
+            status.console.log("Extracted runtime data and stopped app")
+
+            # generate keystreams
+            keystreams: dict[str, bytes] = {}
+            if encrypted:
+                status.update("[yellow]Generating decryption keystreams...")
+                keystreams = {
+                    lib: keystream(encrypted[lib], native_results[lib].decrypted)
+                    for lib in encrypted
+                }
+                status.console.log("Generated decryption keystreams")
+
+            # create combined object for JSON output
+            results = ExportResults(
+                java_results,
+                {
+                    lib: LibraryData(
+                        base64.b64encode(keystreams[lib]).decode("utf-8"),
+                        native_results[lib].relocations,
+                    )
+                    for lib in native_results
+                },
+            )
+
+            # create output directory
+            output_json = Path(args.output or f"output/{args.target}_{version}.json")
+            output_json.parent.mkdir(parents=True, exist_ok=True)
 
             # write results to ouput JSON
             status.update("[yellow]Writing JSON...")
-            output = Path(args.output or f"output/{args.target}_{version}.json")
-            output.parent.mkdir(parents=True, exist_ok=True)
-            with open(output, "w", encoding="utf-8") as file:
-                file.write(json.dumps(results.serialize(), indent=2))
-            status.console.log(f"Saved JSON output: [bold green]{output}")
+            with open(output_json, "w", encoding="utf-8") as file:
+                file.write(json.dumps(asdict(results), indent=2))
+            status.console.log(f"Saved JSON output: [bold green]{output_json}")
 
         finally:
-            status.update("[yellow]Cleaning up...")
-            if temp_apk_path and os.path.exists(temp_apk_path):
-                os.remove(temp_apk_path)
+            if args.clean:
+                status.update("[yellow]Cleaning up...")
+                if temp_path and os.path.exists(temp_path):
+                    shutil.rmtree(temp_path)
 
     console.print("[bold yellow]Finished!")
 

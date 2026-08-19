@@ -1,12 +1,12 @@
-import json
 import subprocess
+from dataclasses import asdict
 from pathlib import Path
 from time import sleep
 
 import frida
 
 from .adb import adb_shell, get_pid
-from .data import Reflected
+from .models import JavaReflection, LibraryFridaInfo, LibraryFridaResult
 
 SCRIPT_PATH = Path(__file__).resolve().parents[2] / "js/build/frida.compiled.js"
 
@@ -21,16 +21,26 @@ def start_frida_server():
         return None
 
 
-def attach_and_run_script(pid: int, data: Reflected):
+def attach_and_run_script(
+    pid: int, java: JavaReflection, native: dict[str, LibraryFridaInfo]
+):
     device = frida.get_usb_device(timeout=5)
 
     session = device.attach(pid)
 
-    compiled_js = Path(SCRIPT_PATH).read_text(encoding="utf-8", newline="")
+    compiled_js = Path(SCRIPT_PATH).read_text(encoding="utf-8")
     script = session.create_script(compiled_js)
     script.load()
-    results: dict = script.exports.extract_values(data.serialize())
+
+    reflection_results: dict = script.exports.extract_java(asdict(java))
+    native_results: dict = script.exports.extract_native(
+        {lib: asdict(info) for lib, info in native.items()}
+    )
 
     session.detach()
 
-    return Reflected(**results)
+    deserialized_native: dict[str, LibraryFridaResult] = {
+        lib: LibraryFridaResult(**lib_result)
+        for lib, lib_result in native_results.items()
+    }
+    return JavaReflection(**reflection_results), deserialized_native
