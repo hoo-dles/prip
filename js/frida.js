@@ -13,17 +13,17 @@ import Java from 'frida-java-bridge';
 
 /** @param {Reflected} data */
 function extractJava(data) {
-  const lookups = { ...data.strings, ...data.methods };
-  for (const [className, fields] of Object.entries(lookups)) {
-    const JavaClass = Java.use(className);
+    const lookups = { ...data.strings, ...data.methods };
+    for (const [className, fields] of Object.entries(lookups)) {
+        const JavaClass = Java.use(className);
 
-    for (const field of fields) {
-      const fieldRef = JavaClass[field.name];
-      field.value = fieldRef.value.toString();
+        for (const field of fields) {
+            const fieldRef = JavaClass[field.name];
+            field.value = fieldRef.value.toString();
+        }
     }
-  }
 
-  return data;
+    return data;
 }
 
 /**
@@ -31,29 +31,29 @@ function extractJava(data) {
  * @returns {NativeResults}
  */
 function extractNative(info) {
-  const /** @type {NativeResults} */ results = {}
+    const /** @type {NativeResults} */ results = {}
 
-  for (const [libName, data] of Object.entries(info)) {
-    let module = getOrLoadModule(libName);
+    for (const [libName, data] of Object.entries(info)) {
+        let module = getOrLoadModule(libName);
 
-    const relocations = data.got_vaddrs.map(va => {
-      const symbolPtr = module.base.add(ptr(va)).readPointer();
-      const symbol = DebugSymbol.fromAddress(symbolPtr);
+        const relocations = data.got_vaddrs.map(va => {
+            const symbolPtr = module.base.add(ptr(va)).readPointer();
+            const symbol = getPublicExportFromAddress(symbolPtr)
 
-      return {
-        address: va,
-        symbol: symbol.name
-      }
-    });
+            return {
+                address: va,
+                symbol: symbol
+            }
+        });
 
-    const dec = readLibMemory(module, data.text_info.v_addr, data.text_info.size);
-    results[libName] = {
-      decrypted: Array.from(dec),
-      relocations
-    };
-  }
+        const dec = readLibMemory(module, data.text_info.v_addr, data.text_info.size);
+        results[libName] = {
+            decrypted: Array.from(dec),
+            relocations
+        };
+    }
 
-  return results;
+    return results;
 }
 
 /**
@@ -63,58 +63,85 @@ function extractNative(info) {
  * @returns {Uint8Array}
  */
 function readLibMemory(module, offset, length) {
-  const targetAddr = module.base.add(offset);
-  const arrBuf = targetAddr.readByteArray(length);
-  return new Uint8Array(arrBuf);
+    const targetAddr = module.base.add(offset);
+    const arrBuf = targetAddr.readByteArray(length);
+    return new Uint8Array(arrBuf);
 }
 
 /**
  * @param {string} libName
  */
 function getOrLoadModule(libName) {
-  let module = Process.findModuleByName(libName);
-  if (module)
+    let module = Process.findModuleByName(libName);
+    if (module)
+        return module;
+
+    let shortName = libName.replace(/^lib/, '').replace(/\.so$/, '');
+
+    Java.perform(() => {
+        const ActivityThread = Java.use('android.app.ActivityThread');
+        const context = ActivityThread.currentApplication().getApplicationContext();
+        const classLoader = context.getClassLoader();
+        const appClassName = context.getApplicationInfo().className.value;
+        const AppClass = classLoader.loadClass(appClassName);
+        const Runtime = Java.use('java.lang.Runtime');
+        const runtime = Runtime.getRuntime();
+
+        runtime.loadLibrary0(AppClass, shortName);
+    });
+
+    module = Process.getModuleByName(libName);
     return module;
+}
 
-  let shortName = libName.replace(/^lib/, '').replace(/\.so$/, '');
+/**
+ * Resolves a memory address to its public exported symbol name and module.
+ * 
+ * @param {NativePointer} targetPtr
+ * @returns {string}
+ */
+function getPublicExportFromAddress(targetPtr) {
+    const symbol = DebugSymbol.fromAddress(targetPtr);
+    const mod = Process.getModuleByName(symbol.moduleName);
 
-  Java.perform(() => {
-    const ActivityThread = Java.use('android.app.ActivityThread');
-    const context = ActivityThread.currentApplication().getApplicationContext();
-    const classLoader = context.getClassLoader();
-    const appClassName = context.getApplicationInfo().className.value;
-    const AppClass = classLoader.loadClass(appClassName);
-    const Runtime = Java.use('java.lang.Runtime');
-    const runtime = Runtime.getRuntime();
+    const candidates = new Set();
+    candidates.add(symbol.name)
 
-    runtime.loadLibrary0(AppClass, shortName);
-  });
+    const cleanedName = symbol.name
+        .replace(/^(portable_simd_|__kernel_|__)/, '')
+        .replace(/_(aarch64|arm|neon|mte|v8|sve2?|pac|opt|shared|static).*$/, '');
+    candidates.add(cleanedName)
 
-  module = Process.getModuleByName(libName);
-  return module;
+    for (const candidate of candidates) {
+        const resolvedAddr = mod.findExportByName(candidate);
+        if (resolvedAddr && resolvedAddr.equals(symbol.address))
+            return candidate;
+    }
+
+    throw new Error(`Cannot find exported symbol (${symbol})`)
 }
 
 rpc.exports = {
-  extractJava: function (/** @type {Reflected} */ data) {
-    return new Promise(function (resolve, reject) {
-      Java.perform(function () {
-        try {
-          resolve(extractJava(data));
-        } catch (e) {
-          reject(e);
-        }
-      });
-    });
-  },
-  extractNative: function (/** @type {NativeFridaInfo} */ info) {
-    return new Promise(function (resolve, reject) {
-      Java.perform(function () {
-        try {
-          resolve(extractNative(info));
-        } catch (e) {
-          reject(e);
-        }
-      });
-    });
-  }
+    extractJava: function (/** @type {Reflected} */ data) {
+        return new Promise(function (resolve, reject) {
+            Java.perform(function () {
+                try {
+                    resolve(extractJava(data));
+                } catch (e) {
+                    reject(e);
+                }
+            });
+        });
+    },
+    extractNative: function (/** @type {NativeFridaInfo} */ info) {
+        return new Promise(function (resolve, reject) {
+            Java.perform(function () {
+                try {
+                    resolve(extractNative(info));
+                } catch (e) {
+                    reject(e);
+                }
+            });
+        });
+    }
 };
