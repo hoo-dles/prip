@@ -1,5 +1,4 @@
 import subprocess
-from dataclasses import asdict
 from pathlib import Path
 from time import sleep
 
@@ -32,9 +31,9 @@ def attach_and_run_script(
     script = session.create_script(compiled_js)
     script.load()
 
-    reflection_results: dict = script.exports.extract_java(asdict(java))
+    reflection_results: dict = script.exports.extract_java(java.model_dump())
     native_results: dict = script.exports.extract_native(
-        {lib: asdict(info) for lib, info in native.items()}
+        {lib: info.model_dump() for lib, info in native.items()}
     )
 
     session.detach()

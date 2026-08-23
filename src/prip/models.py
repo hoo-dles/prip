@@ -1,57 +1,48 @@
-from dataclasses import dataclass, field
+from pydantic import BaseModel, Field, field_validator
 
 # --- Java Reflection ---
 
 
-@dataclass
-class Field:
+class JavaField(BaseModel):
     name: str
     value: str | None = None
 
 
-@dataclass
-class JavaReflection:
-    methods: dict[str, list[Field]] = field(default_factory=dict)
-    strings: dict[str, list[Field]] = field(default_factory=dict)
+class JavaReflection(BaseModel):
+    methods: dict[str, list[JavaField]] = Field(default_factory=dict)
+    strings: dict[str, list[JavaField]] = Field(default_factory=dict)
 
 
 # --- Native Libraries ---
 
 
-@dataclass
-class TextSectionInfo:
+class TextSectionInfo(BaseModel):
     v_addr: int
     size: int
 
 
-@dataclass
-class LibraryFridaInfo:
+class LibraryFridaInfo(BaseModel):
     text_info: TextSectionInfo
     got_vaddrs: list[int]
 
 
-@dataclass
-class Relocation:
+class Relocation(BaseModel):
     address: int
     symbol: str
 
 
-@dataclass
-class LibraryFridaResult:
+class LibraryFridaResult(BaseModel):
     decrypted: bytes
     relocations: list[Relocation]
 
+    @field_validator("decrypted", mode="before")
+    @classmethod
+    def convert_int_list_to_bytes(cls, v):
+        if isinstance(v, list):
+            return bytes(v)
+        return v
 
-@dataclass
-class LibraryData:
+
+class LibraryData(BaseModel):
     keystream: str
     relocations: list[Relocation]
-
-
-# --- Results ---
-
-
-@dataclass
-class ExportResults:
-    java: JavaReflection
-    libs: dict[str, LibraryData]

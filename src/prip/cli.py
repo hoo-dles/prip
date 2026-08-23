@@ -1,21 +1,20 @@
 import argparse
 import base64
-import json
 import os
 import shutil
 import sys
 import tempfile
-from dataclasses import asdict
 from pathlib import Path
 from time import sleep
 
 from loguru import logger
+from pydantic import TypeAdapter
 from rich.console import Console
 
 from .adb import force_stop, get_package_version, launch_app, pull_apks, try_get_pid
 from .dex import find_reflected, parse_dex
 from .frida import attach_and_run_script, start_frida_server
-from .models import ExportResults, LibraryData
+from .models import LibraryData
 from .native import analyze_natives, keystream
 
 
@@ -131,27 +130,28 @@ def main():
                 }
                 status.console.log("Generated decryption keystreams")
 
-            # create combined object for JSON output
-            results = ExportResults(
-                java_results,
-                {
-                    lib: LibraryData(
-                        base64.b64encode(keystreams[lib]).decode("utf-8"),
-                        native_results[lib].relocations,
-                    )
-                    for lib in native_results
-                },
-            )
-
             # create output directory
-            output_json = Path(args.output or f"output/{args.target}_{version}.json")
-            output_json.parent.mkdir(parents=True, exist_ok=True)
+            output_dir = Path(args.output or f"output/{args.target}_{version}")
+            output_dir.mkdir(parents=True, exist_ok=True)
 
             # write results to ouput JSON
             status.update("[yellow]Writing JSON...")
-            with open(output_json, "w", encoding="utf-8") as file:
-                file.write(json.dumps(asdict(results), indent=2))
-            status.console.log(f"Saved JSON output: [bold green]{output_json}")
+            with open(output_dir / "java.json", "w", encoding="utf-8") as file:
+                file.write(java_results.model_dump_json(indent=2))
+            native_json = {
+                lib: LibraryData(
+                    keystream=base64.b64encode(keystreams[lib]).decode("utf-8"),
+                    relocations=native_results[lib].relocations,
+                )
+                for lib in native_results
+            }
+            with open(output_dir / "native.json", "w", encoding="utf-8") as file:
+                file.write(
+                    TypeAdapter(dict[str, LibraryData])
+                    .dump_json(native_json, indent=2)
+                    .decode()
+                )
+            status.console.log(f"Saved JSON output: [bold green]{output_dir}")
 
         finally:
             if args.clean:

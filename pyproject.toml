@@ -6,6 +6,7 @@ dependencies = [
     "androguard>=4.0",
     "frida==17.16.4",
     "lief>=1.0.0",
+    "pydantic>=2.13.4",
     "rich>=15.0.0",
 ]
 

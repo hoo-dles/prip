@@ -4,7 +4,7 @@ from pathlib import Path
 from androguard.core.dex import ClassDataItem, EncodedField
 from androguard.misc import apk, dex
 
-from .models import Field, JavaReflection
+from .models import JavaField, JavaReflection
 
 
 class _ValidType(StrEnum):
@@ -55,7 +55,9 @@ def find_reflected(dexs: list[dex.DEX]):
             if not fields_type:
                 continue
 
-            entries = [Field(f.get_name()) for f in cls_data.get_static_fields()]
+            entries = [
+                JavaField(name=f.get_name()) for f in cls_data.get_static_fields()
+            ]
 
             java_class = _to_java_name(cls.get_name())
             match fields_type:

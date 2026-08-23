@@ -28,7 +28,9 @@ def _get_encrypted(elf: lief.ELF.Binary):
 
     dump_len = min(text_section.size, 51120)
     encrypted = bytes(text_section.content[:dump_len])
-    return TextSectionInfo(text_section.virtual_address, dump_len), encrypted
+    return TextSectionInfo(
+        v_addr=text_section.virtual_address, size=dump_len
+    ), encrypted
 
 
 def _missing_got_addrs(elf: lief.ELF.Binary):
@@ -81,7 +83,9 @@ def analyze_natives(arm_apk: Path):
         text_info, encrypted = _get_encrypted(elf)
         got_addrs = _missing_got_addrs(elf)
 
-        frida_infos[lib.name] = LibraryFridaInfo(text_info, got_addrs)
+        frida_infos[lib.name] = LibraryFridaInfo(
+            text_info=text_info, got_vaddrs=got_addrs
+        )
         encrypts[lib.name] = encrypted
 
     return frida_infos, encrypts
