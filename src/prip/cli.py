@@ -1,21 +1,29 @@
 import argparse
-import base64
 import os
 import shutil
 import sys
 import tempfile
+from importlib.metadata import version
 from pathlib import Path
 from time import sleep
 
 from loguru import logger
-from pydantic import TypeAdapter
 from rich.console import Console
 
-from .adb import force_stop, get_package_version, launch_app, pull_apks, try_get_pid
-from .dex import find_reflected, parse_dex
-from .frida import attach_and_run_script, start_frida_server
-from .models import LibraryData
-from .native import analyze_natives, keystream
+__version__ = version("prip")
+
+title = """
+          ███████████   █████ ███████████ 
+          ░░███░░░░░███ ░░███ ░░███░░░░░███
+ ████████  ░███    ░███  ░███  ░███    ░███
+░░███░░███ ░██████████   ░███  ░██████████
+ ░███ ░███ ░███░░░░░███  ░███  ░███░░░░░░
+ ░███ ░███ ░███    ░███  ░███  ░███
+ ░███████  █████   █████ █████ █████
+ ░███░░░  ░░░░░   ░░░░░ ░░░░░ ░░░░░
+ ░███
+ █████   [green]by hoodles[/green]
+░░░░░"""
 
 
 def main():
@@ -28,7 +36,14 @@ def main():
 
     ap = argparse.ArgumentParser(
         prog="prip",
-        description="pRIP - Automatic extraction of pairipcore virtualized strings and methods.",
+        description="pRIP - Automatic extraction of pairipcore virtualized strings/methods and native library metadata.",
+        formatter_class=lambda prog: argparse.HelpFormatter(prog, max_help_position=40),
+    )
+    ap.add_argument(
+        "-v",
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
     )
     ap.add_argument(
         "target",
@@ -37,8 +52,8 @@ def main():
     ap.add_argument(
         "-o",
         "--out",
-        dest="output",
-        help="path to JSON for extracted reflection values",
+        dest="out_dir",
+        help="path to JSON for extracted reflection values (default: ./output)",
     )
     ap.add_argument(
         "-w",
@@ -55,13 +70,29 @@ def main():
     )
 
     args = ap.parse_args()
-    console.log("Starting")
 
-    with console.status("[yellow]Pulling APK splits from device...") as status:
+    console.print(title + "\n")
+
+    with console.status("[yellow]Loading dependencies...") as status:
+        from prip.json import write_json
+
+        from .adb import (
+            force_stop,
+            get_package_version,
+            launch_app,
+            pull_apks,
+            try_get_pid,
+        )
+        from .dex import find_reflected, parse_dex
+        from .frida import attach_and_run_script, start_frida_server
+        from .models import LibraryData
+        from .native import analyze_natives, keystream
+
         temp_path = None
 
         try:
             # find base apk location on device and pull
+            status.update("[yellow]Pulling APK splits from device...")
             version = get_package_version(args.target)
             temp_path = Path(tempfile.gettempdir()) / f"{args.target}_{version}"
             temp_path.mkdir(parents=True, exist_ok=True)
@@ -120,37 +151,22 @@ def main():
             force_stop(args.target)
             status.console.log("Extracted runtime data and stopped app")
 
-            # generate keystreams
-            keystreams: dict[str, bytes] = {}
+            # generate keystreams and final data aggregate
+            library_data: dict[str, LibraryData] = {}
             if encrypted:
                 status.update("[yellow]Generating decryption keystreams...")
-                keystreams = {
-                    lib: keystream(encrypted[lib], native_results[lib].decrypted)
-                    for lib in encrypted
-                }
+                for lib, enc in encrypted.items():
+                    res = native_results[lib]
+                    library_data[lib] = LibraryData(
+                        keystream=keystream(enc, res.decrypted),
+                        relocations=res.relocations,
+                    )
                 status.console.log("Generated decryption keystreams")
-
-            # create output directory
-            output_dir = Path(args.output or f"output/{args.target}_{version}")
-            output_dir.mkdir(parents=True, exist_ok=True)
 
             # write results to ouput JSON
             status.update("[yellow]Writing JSON...")
-            with open(output_dir / "java.json", "w", encoding="utf-8") as file:
-                file.write(java_results.model_dump_json(indent=2))
-            native_json = {
-                lib: LibraryData(
-                    keystream=base64.b64encode(keystreams[lib]).decode("utf-8"),
-                    relocations=native_results[lib].relocations,
-                )
-                for lib in native_results
-            }
-            with open(output_dir / "native.json", "w", encoding="utf-8") as file:
-                file.write(
-                    TypeAdapter(dict[str, LibraryData])
-                    .dump_json(native_json, indent=2)
-                    .decode()
-                )
+            output_dir = Path(args.out_dir or f"output/{args.target}_{version}")
+            write_json(output_dir, java_results, library_data)
             status.console.log(f"Saved JSON output: [bold green]{output_dir}")
 
         finally:

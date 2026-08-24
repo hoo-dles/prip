@@ -1,4 +1,6 @@
-from pydantic import BaseModel, Field, field_validator
+import base64
+
+from pydantic import BaseModel, Field, field_serializer, field_validator
 
 # --- Java Reflection ---
 
@@ -44,5 +46,9 @@ class LibraryFridaResult(BaseModel):
 
 
 class LibraryData(BaseModel):
-    keystream: str
+    keystream: bytes
     relocations: list[Relocation]
+
+    @field_serializer("keystream", when_used="json")
+    def serialize_keystream(self, keystream: bytes) -> str:
+        return base64.b64encode(keystream).decode("utf-8")
