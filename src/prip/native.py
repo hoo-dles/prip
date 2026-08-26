@@ -34,10 +34,10 @@ def _get_encrypted(elf: lief.ELF.Binary):
 
 
 def _missing_got_addrs(elf: lief.ELF.Binary):
-    got_section = elf.get_section(".got.plt")
+    got_section = elf.get_section(".got.plt") or elf.get_section(".got")
     plt_section = elf.get_section(".plt")
     if not got_section or not plt_section:
-        raise RuntimeError("Missing .got or .got.plt section")
+        raise RuntimeError("Missing .got or .plt section")
 
     got_start = got_section.virtual_address
     got_bytes = bytes(got_section.content)
@@ -80,8 +80,12 @@ def analyze_natives(arm_apk: Path):
         if _PAIRIP_SO not in elf.libraries:
             continue
 
-        text_info, encrypted = _get_encrypted(elf)
-        got_addrs = _missing_got_addrs(elf)
+        try:
+            text_info, encrypted = _get_encrypted(elf)
+            got_addrs = _missing_got_addrs(elf)
+        except RuntimeError as e:
+            e.add_note(f"Library: {lib.name}")
+            raise
 
         frida_infos[lib.name] = LibraryFridaInfo(
             text_info=text_info, got_vaddrs=got_addrs
@@ -92,4 +96,5 @@ def analyze_natives(arm_apk: Path):
 
 
 def keystream(enc: bytes, dec: bytes):
-    return bytes([e ^ d for e, d in zip(enc, dec)])
+    """Calcuate XOR cipher. Returns empty `bytes` object if equal."""
+    return bytes([e ^ d for e, d in zip(enc, dec)]) if enc != dec else b""

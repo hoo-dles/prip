@@ -1,13 +1,16 @@
 import subprocess
+from importlib.resources import files
 from pathlib import Path
 from time import sleep
 
 import frida
 
+import prip
+
 from .adb import adb_shell, get_pid
 from .models import JavaReflection, LibraryFridaInfo, LibraryFridaResult
 
-SCRIPT_PATH = Path(__file__).resolve().parents[2] / "js/build/frida.compiled.js"
+SCRIPT_FILE = "js/frida.compiled.js"
 
 
 def start_frida_server():
@@ -23,11 +26,13 @@ def start_frida_server():
 def attach_and_run_script(
     pid: int, java: JavaReflection, native: dict[str, LibraryFridaInfo]
 ):
+    script_path = files(prip).joinpath(SCRIPT_FILE)
+
     device = frida.get_usb_device(timeout=5)
 
     session = device.attach(pid)
 
-    compiled_js = Path(SCRIPT_PATH).read_text(encoding="utf-8")
+    compiled_js = script_path.read_text(encoding="utf-8")
     script = session.create_script(compiled_js)
     script.load()
 

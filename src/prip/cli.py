@@ -74,6 +74,7 @@ def main():
     console.print(title + "\n")
 
     with console.status("[yellow]Loading dependencies...") as status:
+        # lazy load
         from prip.json import write_json
 
         from .adb import (
@@ -167,7 +168,7 @@ def main():
             status.update("[yellow]Writing JSON...")
             output_dir = Path(args.out_dir or f"output/{args.target}_{version}")
             write_json(output_dir, java_results, library_data)
-            status.console.log(f"Saved JSON output: [bold green]{output_dir}")
+            status.console.log(f"Saved JSON output: [bold green]{output_dir.resolve()}")
 
         finally:
             if args.clean:

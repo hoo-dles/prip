@@ -3,7 +3,8 @@
 .venv/
 __pycache__/
 
-js/node_modules/
-js/build/**
+**/node_modules/
+**/build/**
 output/
 build/
+dist/
