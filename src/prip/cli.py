@@ -31,7 +31,7 @@ def main():
     logger.remove()
     logger.add(sys.stderr, level="WARNING")
 
-    console = Console()
+    console = Console(log_path=False)
     console._log_render.omit_repeated_times = False
 
     ap = argparse.ArgumentParser(

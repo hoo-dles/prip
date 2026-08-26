@@ -10,7 +10,7 @@
     "frida-compile": "^19.0.5"
   },
   "scripts": {
-    "build": "frida-compile frida.js -o build/frida.compiled.js",
-    "watch": "frida-compile frida.js -o build/frida.compiled.js -w"
+    "build": "frida-compile frida.js -o ../src/prip/js/frida.compiled.js",
+    "watch": "frida-compile frida.js -o ../src/prip/js/frida.compiled.js -w"
   }
 }

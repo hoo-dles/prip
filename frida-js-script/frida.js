@@ -94,6 +94,18 @@ function getOrLoadModule(libName) {
     return module;
 }
 
+const ARCH_TAGS = [
+    'aarch64', 'arm', 'neon', 'mte', 'v8',
+    'sve2?', 'pac', 'opt', 'shared', 'static'
+].join('|');
+
+// internal prefixes
+const PREFIX_REGEX = /^(portable_simd_|__kernel_|__libc_|__)/;
+// architecture, optimization, and SIMD suffixes
+const ARCH_REGEX = new RegExp(`_(${ARCH_TAGS}).*$`);
+// locale (_l) tags
+const TRAILING_LOCALE_REGEX = /_l$/;
+
 /**
  * Resolves a memory address to its public exported symbol name and module.
  * 
@@ -105,12 +117,16 @@ function getPublicExportFromAddress(targetPtr) {
     const mod = Process.getModuleByName(symbol.moduleName);
 
     const candidates = new Set();
-    candidates.add(symbol.name)
 
     const cleanedName = symbol.name
-        .replace(/^(portable_simd_|__kernel_|__)/, '')
-        .replace(/_(aarch64|arm|neon|mte|v8|sve2?|pac|opt|shared|static).*$/, '');
-    candidates.add(cleanedName)
+        .replace(PREFIX_REGEX, '')
+        .replace(ARCH_REGEX, '')
+        .replace(TRAILING_LOCALE_REGEX, '');
+
+    // Check cleaned name FIRST (some locale/reentrant variants are available on newer versions of
+    // Android, but not all supported versions)
+    candidates.add(cleanedName);
+    candidates.add(symbol.name);
 
     for (const candidate of candidates) {
         const resolvedAddr = mod.findExportByName(candidate);
