@@ -1,6 +1,5 @@
 import subprocess
 from importlib.resources import files
-from pathlib import Path
 from time import sleep
 
 import frida

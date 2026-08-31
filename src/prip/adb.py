@@ -47,20 +47,21 @@ def _get_apk_paths(package: str):
     return get_path("base"), get_path("arm64_v8a")
 
 
-def pull_apks(package: str, output: Path):
-    def pull(path: str):
-        apk_name = Path(path).name
-        output_apk = output / apk_name
-        subprocess.run(
-            f'adb pull "{path}" "{output_apk}"',
-            shell=True,
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        return output_apk
+def pull(path: str, output: Path):
+    file_name = Path(path).name
+    output_file = output / file_name
+    subprocess.run(
+        f'adb pull "{path}" "{output_file}"',
+        shell=True,
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    return output_file
 
+
+def pull_apks(package: str, output: Path):
     base, arm = _get_apk_paths(package)
-    out_base = pull(base)
-    arm_base = pull(arm)
+    out_base = pull(base, output)
+    arm_base = pull(arm, output)
     return out_base, arm_base

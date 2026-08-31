@@ -1,3 +1,4 @@
+import re
 import struct
 import zipfile
 from pathlib import Path
@@ -98,3 +99,33 @@ def analyze_natives(arm_apk: Path):
 def keystream(enc: bytes, dec: bytes):
     """Calcuate XOR cipher. Returns empty `bytes` object if equal."""
     return bytes([e ^ d for e, d in zip(enc, dec)]) if enc != dec else b""
+
+
+def _find_func_symbol(elf: lief.ELF.Binary, offset: int):
+    for sym in elf.symbols:
+        if sym.type == lief.ELF.Symbol.TYPE.FUNC and sym.value == offset:
+            return sym.name
+    return None
+
+
+def find_symbols(lib: Path, offsets: list[int]):
+    elf = cast(lief.ELF.Binary, lief.parse(lib))
+
+    symbols: dict[int, str] = {}
+    for offset in offsets:
+        symbol = _find_func_symbol(elf, offset)
+        if not symbol or not isinstance(symbol, str):
+            raise RuntimeError(f"Could not find symbol ({lib.name}+{hex(offset)})")
+        symbols[offset] = symbol
+    return symbols
+
+
+_PREFIX_REGEX = r"^(portable_simd_|__kernel_|__libc_|__)"
+_ARCH_REGEX = r"_(aarch64|arm|neon|mte|v8|sve2?|pac|opt|shared|static).*$"
+
+
+def clean_symbol_name(symbol: str):
+    res = symbol
+    for pattern in [_PREFIX_REGEX, _ARCH_REGEX]:
+        res = re.sub(pattern, "", res)
+    return res

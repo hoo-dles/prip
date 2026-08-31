@@ -7,7 +7,10 @@ import Java from 'frida-java-bridge';
  * @typedef {{ v_addr: number, size: number }} TextSectionInfo
  * @typedef { Record<string, { text_info: TextSectionInfo, got_vaddrs: number[] }>} NativeFridaInfo
  * 
- * @typedef { Record<string, { decrypted: number[], relocations: { address: number, symbol: string }[] }> } NativeResults
+ * @typedef {{ module_path: string, offset: number }} MissingSymbol
+ * @typedef {{ address: number, symbol: string, missing?: MissingSymbol}} Relocation
+ * 
+ * @typedef { Record<string, { decrypted: number[], relocations: Relocation[] }> } NativeResults
  */
 
 
@@ -26,6 +29,20 @@ function extractJava(data) {
     return data;
 }
 
+class SymbolLookupError extends Error {
+    /**
+       * @param {Module} module
+       * @param {NativePointer} offset
+       */
+    constructor(module, offset) {
+        super("Cannot find symbol name");
+
+        this.name = "SymbolLookupError";
+        this.module = module;
+        this.offset = offset;
+    }
+}
+
 /**
  * @param {NativeFridaInfo} info
  * @returns {NativeResults}
@@ -36,17 +53,32 @@ function extractNative(info) {
     for (const [libName, data] of Object.entries(info)) {
         let module = getOrLoadModule(libName);
 
-        const relocations = data.got_vaddrs.map(va => {
+        const relocations = [];
+        for (const va of data.got_vaddrs) {
             const symbolPtr = module.base.add(ptr(va)).readPointer();
-            const symbol = getPublicExportFromAddress(symbolPtr)
 
-            return {
-                address: va,
-                symbol: symbol
+            try {
+                const symbol = getPublicExportFromAddress(symbolPtr)
+                relocations.push({
+                    address: va,
+                    symbol: symbol
+                });
+            } catch (error) {
+                if (error instanceof SymbolLookupError) {
+                    relocations.push({
+                        address: va,
+                        symbol: "",
+                        missing: {
+                            module_path: error.module.path,
+                            offset: error.offset.toUInt32()
+                        }
+                    });
+                } else throw error;
             }
-        });
+        }
 
         const dec = readLibMemory(module, data.text_info.v_addr, data.text_info.size);
+
         results[libName] = {
             decrypted: Array.from(dec),
             relocations
@@ -94,6 +126,30 @@ function getOrLoadModule(libName) {
     return module;
 }
 
+/**
+ * @param {NativePointer} targetPtr
+ */
+function getSafeSymbol(targetPtr) {
+    var mod = Process.findModuleByAddress(targetPtr);
+    if (!mod) {
+        throw new Error(`Cannot find module for symbol pointer`)
+    }
+
+    var exports = mod.enumerateExports();
+    for (var i = 0; i < exports.length; i++) {
+        if (exports[i].address.equals(targetPtr)) {
+            return {
+                module: mod,
+                name: exports[i].name,
+                address: exports[i].address
+            }
+        }
+    }
+
+    var offset = targetPtr.sub(mod.base);
+    throw new SymbolLookupError(mod, offset);
+}
+
 const ARCH_TAGS = [
     'aarch64', 'arm', 'neon', 'mte', 'v8',
     'sve2?', 'pac', 'opt', 'shared', 'static'
@@ -113,11 +169,9 @@ const TRAILING_LOCALE_REGEX = /_l$/;
  * @returns {string}
  */
 function getPublicExportFromAddress(targetPtr) {
-    const symbol = DebugSymbol.fromAddress(targetPtr);
-    const mod = Process.getModuleByName(symbol.moduleName);
+    const symbol = getSafeSymbol(targetPtr);
 
     const candidates = new Set();
-
     const cleanedName = symbol.name
         .replace(PREFIX_REGEX, '')
         .replace(ARCH_REGEX, '')
@@ -129,12 +183,10 @@ function getPublicExportFromAddress(targetPtr) {
     candidates.add(symbol.name);
 
     for (const candidate of candidates) {
-        const resolvedAddr = mod.findExportByName(candidate);
+        const resolvedAddr = symbol.module.findExportByName(candidate);
         if (resolvedAddr && resolvedAddr.equals(symbol.address))
             return candidate;
     }
-
-    throw new Error(`Cannot find exported symbol (${symbol})`)
 }
 
 rpc.exports = {

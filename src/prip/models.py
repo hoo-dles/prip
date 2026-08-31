@@ -28,9 +28,15 @@ class LibraryFridaInfo(BaseModel):
     got_vaddrs: list[int]
 
 
+class MissingSymbol(BaseModel):
+    module_path: str
+    offset: int
+
+
 class Relocation(BaseModel):
     address: int
     symbol: str
+    missing: MissingSymbol | None = Field(default=None, exclude=True)
 
 
 class LibraryFridaResult(BaseModel):

@@ -3,6 +3,7 @@ import os
 import shutil
 import sys
 import tempfile
+from collections import defaultdict
 from importlib.metadata import version
 from pathlib import Path
 from time import sleep
@@ -81,13 +82,14 @@ def main():
             force_stop,
             get_package_version,
             launch_app,
+            pull,
             pull_apks,
             try_get_pid,
         )
         from .dex import find_reflected, parse_dex
         from .frida import attach_and_run_script, start_frida_server
         from .models import LibraryData
-        from .native import analyze_natives, keystream
+        from .native import analyze_natives, clean_symbol_name, find_symbols, keystream
 
         temp_path = None
 
@@ -150,19 +152,51 @@ def main():
                 app_pid, reflection_to_hydrate, frida_natives
             )
             force_stop(args.target)
-            status.console.log("Extracted runtime data and stopped app")
+            missing_symbols = {
+                (reloc.missing.module_path, reloc.missing.offset): ""
+                for data in native_results.values()
+                for reloc in data.relocations
+                if reloc.missing
+            }
+            missing_count = len(missing_symbols)
+            status.console.log(
+                f"Extracted runtime data and stopped app {f'[yellow]({missing_count} unique missing symbols)' if missing_count else ''}"
+            )
+
+            # find missing symbols
+            if missing_count:
+                status.update("[yellow]Discovering missing symbols")
+                # group offsets by lib
+                lib_to_offsets: defaultdict[str, list[int]] = defaultdict(list)
+                for path, offset in missing_symbols:
+                    lib_to_offsets[path].append(offset)
+                # find symbols and map (path, offset) -> symbol name
+                for path, offsets in lib_to_offsets.items():
+                    temp_lib_path = pull(path, temp_path)
+                    symbols = find_symbols(temp_lib_path, offsets)
+                    for offset, symbol in symbols.items():
+                        missing_symbols[(path, offset)] = symbol
+                # fix missing relocation
+                for data in native_results.values():
+                    for reloc in data.relocations:
+                        if reloc.missing:
+                            reloc.symbol = clean_symbol_name(
+                                missing_symbols[
+                                    (reloc.missing.module_path, reloc.missing.offset)
+                                ]
+                            )
+                status.console.log("Fixed missing symbols")
 
             # generate keystreams and final data aggregate
             library_data: dict[str, LibraryData] = {}
-            if encrypted:
-                status.update("[yellow]Generating decryption keystreams...")
-                for lib, enc in encrypted.items():
-                    res = native_results[lib]
-                    library_data[lib] = LibraryData(
-                        keystream=keystream(enc, res.decrypted),
-                        relocations=res.relocations,
-                    )
-                status.console.log("Generated decryption keystreams")
+            status.update("[yellow]Generating decryption keystreams...")
+            for lib, enc in encrypted.items():
+                res = native_results[lib]
+                library_data[lib] = LibraryData(
+                    keystream=keystream(enc, res.decrypted),
+                    relocations=res.relocations,
+                )
+            status.console.log("Generated decryption keystreams")
 
             # write results to ouput JSON
             status.update("[yellow]Writing JSON...")
