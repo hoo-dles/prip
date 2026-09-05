@@ -1,3 +1,6 @@
+//  Copyright 2026 Hoo-dles
+//  https://github.com/hoo-dles/prip
+
 import Java from 'frida-java-bridge';
 
 /**

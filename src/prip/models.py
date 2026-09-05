@@ -1,3 +1,6 @@
+#  Copyright 2026 Hoo-dles
+#  https://github.com/hoo-dles/prip
+
 import base64
 
 from pydantic import BaseModel, Field, field_serializer, field_validator

@@ -1,3 +1,6 @@
+#  Copyright 2026 Hoo-dles
+#  https://github.com/hoo-dles/prip
+
 from pathlib import Path
 
 from pydantic import TypeAdapter

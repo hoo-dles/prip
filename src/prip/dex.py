@@ -1,3 +1,6 @@
+#  Copyright 2026 Hoo-dles
+#  https://github.com/hoo-dles/prip
+
 from enum import StrEnum
 from pathlib import Path
 
