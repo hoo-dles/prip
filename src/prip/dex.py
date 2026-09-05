@@ -39,7 +39,7 @@ def _match_class(class_data: ClassDataItem):
     static_fields = class_data.get_static_fields()
     first_type = static_fields[0].get_descriptor()
     for f in static_fields:
-        if not _is_valid(f) or f.get_descriptor() != first_type:
+        if not _is_valid(f) or f.get_descriptor() != first_type or f.get_init_value():
             return None
 
     return _ValidType(first_type)
