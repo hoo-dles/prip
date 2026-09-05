@@ -1,7 +1,7 @@
 import Java from 'frida-java-bridge';
 
 /**
- * @typedef {{ name: string, value: string }} Field
+ * @typedef {{ name: string, value: string | null }} Field
  * @typedef {{ methods: Record<string, Field[]>, strings: Record<string, Field[]> }} Reflected
  * 
  * @typedef {{ v_addr: number, size: number }} TextSectionInfo
@@ -22,7 +22,7 @@ function extractJava(data) {
 
         for (const field of fields) {
             const fieldRef = JavaClass[field.name];
-            field.value = fieldRef.value.toString();
+            field.value = fieldRef.value?.toString() ?? null;
         }
     }
 
